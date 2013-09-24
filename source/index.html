@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="Description" content="vLine Example">
+  <!-- Always force latest IE rendering engine or request Chrome Frame -->
+  <meta content="IE=edge,chrome=1" http-equiv="X-UA-Compatible">
+
+  <title>vLine Room Example</title>
+  <script src="https://static.vline.com/vline.js"></script>
+  <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css" rel="stylesheet">
+</head>
+<body>
+
+<script>
+  (function () {
+    // Your server should generate a profile for the local user
+    LOCAL_USER_PROFILE = {
+      displayName: 'User Name'
+    };
+    AUTH_TOKEN = 'AUTH_TOKEN';               // Your server should generate and inject an authToken for the local user
+    REMOTE_USER_ID = 'REMOTE_USER_ID';       // Your server should set the username of the remote user
+
+    var serviceId = 'YOUR_SERVICE_ID';       // Set this to your Service ID (constant)
+
+    var session = null;
+    var localPerson = null;
+    var localStream = null;
+
+    var client = vline.Client.create({serviceId: serviceId, ui: true});
+    client.on('add:mediaSession', onMediaSession, this);
+
+    function onMediaSession(e) {
+      var mediaSession = e.target;
+      mediaSession.on('enterState:incoming', onIncomingMedia);
+      mediaSession.on('enterState:closed', function(e) {
+        localStream && localStream.stop();
+      });
+    }
+
+    // Auto-accept incoming call
+    function onIncomingMedia(e) {
+      var mediaSession = e.target;
+      mediaSession.start();
+    }
+
+    // Show login or logout button based on current vLine client state
+    if (client.isLoggedIn()) {
+      session = client.getDefaultSession();
+      localPerson = session.getLocalPerson();
+      console.log('Local person: ' + localPerson.getId());
+      connect();
+    } else {
+      // We log in with the auth token
+      client.login(serviceId, LOCAL_USER_PROFILE, AUTH_TOKEN).done(function(sess) {
+        session = sess;
+        localPerson = session.getLocalPerson();
+        console.log('Local person: ' + localPerson.getId());
+        connect();
+      });
+    }
+
+    // Deterministically call other user, for example userA will always call userB as userA < userB
+    function startPeerMediaSession(person) {
+      if ((person.getId() != localPerson.getId()) &&
+          (person.getId() < localPerson.getId())) {
+        if (person.getPresenceState() === 'online') {
+          var m = person.startMedia();
+          console.log('Started media session with person: ' + person.getId());
+        }
+      }
+    }
+
+    function connect() {
+      // See if other person is online and start call immediately.
+      // The other person will auto accept
+      session.getPerson(REMOTE_USER_ID).done(function(p) {
+
+        // This shows a local video while you wait for the other user
+        // to show up
+        client.getLocalStream().done(function(s) {
+          localStream = s;
+          console.log('Local stream: ' + s.getId());
+          // NOTE: If you want to layout the video elements in a custom manner, you can use
+          // stream.createVideoElement() to create a video element here:
+          // https://vline.com/developer/docs/vline.js/vline.MediaStream#createVideoElement
+        }).fail(function (error) {
+              console.log('error: ' + error.message + ' type: ' + error.type);
+        });
+
+        startPeerMediaSession(p);
+
+        // If other person is not currently online, this will start the call when they come
+        // online
+        p.on('change:presenceState', function (e) {
+          if (e.val === 'online') {
+            console.log('User came online, starting mediasession with: ' + p.getId());
+            startPeerMediaSession(p);
+          }
+        });
+
+      }, this);
+    }
+
+    // Remember to stop local stream and logout when you unload page.
+    window.addEventListener('beforeunload', function (event) {
+      localStream && localStream.stop();
+      session && session.logout();
+    });
+  })();
+</script>
+</body>
+</html>
